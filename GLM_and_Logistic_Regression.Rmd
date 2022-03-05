@@ -1,0 +1,213 @@
+---
+title: "GLM and Logistic Regression with LASSO/Ridge Regularization"
+author: "Tianze Hua"
+date: "3/4/2022"
+output: pdf_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, tidy.opts=list(width.cutoff=80), tidy=TRUE)
+options(tinytex.verbose = TRUE)
+```
+
+
+```{r load package and dataset}
+# load multiple packages with two lines
+library(pacman)
+p_load(ISLR, caret, tidyverse, gridExtra, pROC, psych, knitr,
+       broom, gmodels, glmnet, Metrics)
+
+# dataset used is College
+attach(College)
+md = College
+```
+
+#### Context
+
+Description
+Statistics for a large number of US Colleges from the 1995 issue of US News and World Report.
+
+#### Format
+
+A data frame with 777 observations on the following 18 variables.
+
+**Private** A factor with levels No and Yes indicating private or public university
+
+**Apps Number** of applications received
+
+**Accept** Number of applications accepted
+
+**Enroll** Number of new students enrolled
+
+**Top10perc** Pct. new students from top 10% of H.S. class
+
+**Top25perc** Pct. new students from top 25% of H.S. class
+
+**F.Undergrad** Number of fulltime undergraduates
+
+**P.Undergrad** Number of parttime undergraduates
+
+**Outstate** Out-of-state tuition
+
+**Room.Board** Room and board costs
+
+**Books** Estimated book costs
+
+**Personal** Estimated personal spending
+
+**PhD** Pct. of faculty with Ph.D.’s
+
+**Terminal** Pct. of faculty with terminal degree
+
+**S.F.Ratio** Student/faculty ratio
+
+**perc.alumni** Pct. alumni who donate
+
+**Expend** Instructional expenditure per student
+
+**Grad.Rate** Graduation rate
+
+
+
+```{r descriptive statistics }
+glimpse(md)
+
+psych::describe(md, fast=TRUE) %>% slice(2:n()) %>% select(3:8) %>% kable()
+
+# Frequency table for Private College and Public
+table(factor(md$Private))
+
+# set Private college to be the baseline
+md$Private <- relevel(md$Private, 'No')
+
+# descriptive statistics for continuous variables
+continous = select_if(md, is.numeric)
+summary(continous)
+```
+
+```{r Partition trainning set}
+set.seed(16)
+train_index <- createDataPartition(md$Private, p=0.75, list = FALSE, times = 1)
+train_data <- md[train_index,]
+test_data <- md[-train_index,]
+```
+
+```{r fit the logistic regression model}
+model <- glm(
+  Private ~ Personal + PhD + Grad.Rate + S.F.Ratio,
+  data = md,
+  family = binomial(link = 'logit'))
+
+summary(model)
+
+# convert coefficient log odds into odds
+exp(coef(model)) %>% kable()
+```
+
+```{r train set prediction}
+prob_train <- predict(model, newdata = train_data, type = 'response')
+predict_result <- as.factor(ifelse(prob_train >= 0.5, 'Yes', 'No'))
+```
+
+```{r confusion matrix}
+confusionMatrix(predict_result, train_data$Private, positive = 'Yes')
+CrossTable(predict_result, train_data$Private)
+```
+
+```{r test set}
+prob_test <- predict(model, newdata = test_data, type = 'response')
+predict_result <- as.factor(ifelse(prob_test >= 0.5, 'Yes', 'No'))
+
+confusionMatrix(predict_result, test_data$Private, positive = 'Yes')
+CrossTable(predict_result, test_data$Private)
+```
+
+```{r ROC curve}
+curve <- roc(train_data$Private, prob_train)
+plot(curve, 
+     col = 'Blue', ylab='Sensitivity - TP Rate', 
+     xlab = 'Specificity - FP Rate', main="ROC Curve")
+
+pROC::auc(curve)
+auc
+```
+
+```{r}
+set.seed(16)
+train_index <- createDataPartition(md$Grad.Rate, p=0.8, list = FALSE, times = 1)
+train <- md[train_index,]
+test <- md[-train_index,]
+
+train_x <- model.matrix(Grad.Rate ~., train)[,-1]
+test_x <- model.matrix(Grad.Rate ~., test)[,-1]
+
+train_y <- train$Grad.Rate
+test_y <- test$Grad.Rate
+```
+
+```{r}
+cv.lasso <- cv.glmnet(train_x, train_y, nfolds = 10)
+plot(cv.lasso)
+
+log(cv.lasso$lambda.min)
+log(cv.lasso$lambda.1se)
+
+cv.lasso$lambda.min
+```
+
+```{r}
+# alpha = 1 for Lasso(L2)
+# alpha = 0 for Ridge(L1)
+model.min <- glmnet(train_x, train_y, alpha = 1, lambda = cv.lasso$lambda.min)
+model.min
+coef(model.min)
+
+model.1se <- glmnet(train_x, train_y, alpha = 1, lambda = cv.lasso$lambda.1se)
+model.1se
+coef(model.1se)
+```
+
+```{r}
+model1.min <- glmnet(train_x, train_y, alpha = 0, lambda = cv.lasso$lambda.min)
+model1.min
+coef(model1.min)
+
+model1.1se <- glmnet(train_x, train_y, alpha = 0, lambda = cv.lasso$lambda.1se)
+model1.1se
+coef(model1.1se)
+```
+
+
+```{r}
+ols <- lm(Grad.Rate ~., data = train)
+summary(ols)
+```
+
+```{r}
+preds.ols <- predict(ols, new = test)
+rmse(test$Grad.Rate, preds.ols)
+rmse(train$Grad.Rate, preds.ols)
+```
+
+```{r}
+preds.train <- predict(model.1se, newx = train_x)
+preds.train1 <- predict(model1.1se, newx = train_x)
+train.rmse <- rmse(train_y, preds.train)
+train1.rmse <- rmse(train_y, preds.train1)
+```
+
+```{r}
+preds.test<- predict(model.1se, newx = test_x)
+test.rmse <- rmse(test_y, preds.test)
+
+preds.test1<- predict(model1.1se, newx = test_x)
+test1.rmse <- rmse(test_y, preds.test1)
+
+train1.rmse
+train.rmse
+test.rmse
+test1.rmse
+
+
+```
