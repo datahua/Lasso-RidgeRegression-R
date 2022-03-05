@@ -1,8 +1,9 @@
 ### Lasso-RidgeRegression-R
 
-- Generalized linear regression
-- Prediction
-- Lasso/Ridge regularization
+- Logistic model to predict college's ownership
+- Lasso/Ridge regression model to predict the graduation rate
+- training
+- feature selection
 
 ---
 
@@ -56,3 +57,5 @@ Source
 
 This dataset was taken from the StatLib library which is maintained at Carnegie Mellon University.
 The dataset was used in the ASA Statistical Graphics Section’s 1995 Data Analysis Exposition.
+
+---
